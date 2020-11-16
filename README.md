@@ -24,9 +24,20 @@
 
 ### 1. <a name="methodOverview"></a> Method overview:
 
+* Method:
+
 <img src="doc/tmi-fig1-intuition.png" alt="intuition" width="600">
 
 <img src="doc/tmi-fig2-model.png" alt="model" width="600">
+
+* Prediction (test set):
+
+<img src="doc/tmi-fig3-pred-illustrative.png" alt="test-predictions" width
+="600">
+
+* Ablation study (test set):
+
+<img src="doc/tmi-fig4-ablation.png" alt="ablation" width="600">
 
 ### 2. <a name="datasets"></a> Datasets:
 

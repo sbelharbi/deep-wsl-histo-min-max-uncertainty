@@ -1,0 +1,58 @@
+MYSEED: '0'
+alpha_plot: 128
+batch_size: 4
+bins: 100
+crop_size: 416
+cudaid: '1'
+dataset: glas
+debug_subfolder: paper-tmi-n-v/glas
+epsilon: 0.0
+extension: !!python/tuple [jpeg, JPEG]
+final_thres: 0.5
+floating: 3
+fold: 0
+fold_folder: ./folds
+height_tag: 50
+img_extension: jpg
+init_t: 5.0
+lambda_neg: 1.0e-07
+max_epochs: 80
+max_t: 10.0
+model:
+  alpha: 0.6
+  dropout: 0.1
+  kmax: 0.3
+  kmin: 0.0
+  modalities: 5
+  model_name: resnet18
+  num_classes: 2
+  path_pre_trained: null
+  pretrained: true
+  scale_in_cl: !!python/tuple [0.8, 0.8]
+  sigma: 0.15
+  strict: true
+  w: 5.0
+mulcoef: 1.01
+name_classes: {benign: 0, malignant: 1}
+nbr_classes: 2
+normalize: true
+normalize_sz: false
+num_workers: 8
+optimizer: {dampening: 0.0, gamma: 0.9, last_epoch: -1, lr: 0.001, lr_scheduler_name: mystep,
+  min_lr: 1.0e-07, momentum: 0.9, name: sgd, nesterov: true, step_size: 10, use_lr_scheduler: true,
+  weight_decay: 0.0001}
+pad_eval: true
+padding_mode: reflect
+padding_size: !!python/tuple [0.01, 0.01]
+preload: true
+rangeh: !!python/tuple [0, 1]
+reg_loss: KLUniformLoss
+resize: null
+show_hists: false
+split: 0
+up_scale_small_dim_to: 432
+use_reg: true
+use_size_const: true
+use_tags: true
+valid_batch_size: '1'
+yaml: glas.yaml

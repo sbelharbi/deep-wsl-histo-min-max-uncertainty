@@ -1,12 +1,3 @@
-### Important:
-For the code of the paper `Min-max Entropy for Weakly Supervised Pointwise
- Localization`
-[(arxiv.org/abs/1907.12934)](https://arxiv.org/abs/1907.12934), please use the
- branch [arxiv-1907.12934](https://github.com/sbelharbi/wsol-min-max-entropy
- -interpretability/tree/arxiv-1907.12934). We apologize for the inconvenience
- . We will fix this soon.
-
-
 ### Pytorch code for: `Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty`
  [(arxiv.org/abs/xxxx.xxxxx)](https://arxiv.org/abs/xxxx.xxxxx)
 

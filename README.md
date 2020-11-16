@@ -3,7 +3,7 @@
 
 * Citation:
 ```
-@article{belharbi2019weakly,
+@article{belharbi2020minmaxuncer,
   title={Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty},
   author={Belharbi, S. and Rony, J. and Dolz, J. and Ben Ayed, I. and McCaffrey, L. and Granger, E.},
   journal={CoRR},

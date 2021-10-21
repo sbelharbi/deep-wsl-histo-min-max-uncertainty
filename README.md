@@ -1,14 +1,16 @@
-### Pytorch code for: `Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty`
+### Pytorch code for:
+
+`Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty`
+
  [(arxiv.org/abs/2011.07221)](https://arxiv.org/abs/2011.07221)
 
-* Citation:
+### Citation:
 ```
 @article{belharbi2020minmaxuncer,
   title={Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty},
   author={Belharbi, S. and Rony, J. and Dolz, J. and Ben Ayed, I. and McCaffrey, L. and Granger, E.},
-  journal={CoRR},
-  volume={abs/2011.07221},
-  year={2020}
+  journal={IEEE Transactions on Medical Imaging},
+  year={2021}
 }
 ```
 

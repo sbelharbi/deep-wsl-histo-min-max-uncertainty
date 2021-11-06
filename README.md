@@ -36,12 +36,7 @@
 
 <img src="doc/ablationtable.png" alt="Ablation table." width="600">
 
-
 <img src="doc/ablationvisu.png" alt="Ablation visualization." width="600">
-* Prediction (test set):
-
-<img src="doc/tmi-fig3-pred-illustrative.png" alt="test-predictions" width
-="600">
 
 * Results (Quantitative):
 

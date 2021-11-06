@@ -28,23 +28,44 @@
 
 * Method:
 
-<img src="doc/tmi-fig1-intuition.png" alt="intuition" width="600">
+<img src="doc/intuition.png" alt="intuition" width="600">
 
-<img src="doc/tmi-fig2-model.png" alt="model" width="600">
+<img src="doc/method.png" alt="model" width="600">
 
+* Ablation studies:
+
+<img src="doc/ablationtable.png" alt="Ablation table." width="600">
+
+
+<img src="doc/ablationvisu.png" alt="Ablation visualization." width="600">
 * Prediction (test set):
 
 <img src="doc/tmi-fig3-pred-illustrative.png" alt="test-predictions" width
 ="600">
 
-* Ablation study (test set):
+* Results (Quantitative):
 
-<img src="doc/tmi-fig4-ablation.png" alt="ablation" width="600">
+<img src="doc/tabglas.png" alt="Glas table results" width="600">
+
+<img src="doc/cameltab.png" alt="Camelyon16 results table" width="600">
+
+<img src="doc/confusionmtx.png" alt="Confusion matrix" width="600">
+
+
+* Results (Qualitative):
+
+<img src="doc/glasresults.png" alt="Glas results" width="600">
+
+<img src="doc/camresultsmetastatic.png" alt="Camelyon16 results (Metastatic)" width="600">
+
+<img src="doc/camresultsnormal.png" alt="Camelyon16 results (Normal)" width="600">
+
 
 ### 2. <a name="datasets"></a> Datasets:
 
 #### 2.1. Links to dataset:
 * [GlaS](https://warwick.ac.uk/fac/sci/dcs/research/tia/glascontest)
+* [Camelyon16](https://github.com/jeromerony/survey_wsl_histology)
 
 
 #### 2.2. Download datasets:

@@ -32,6 +32,7 @@ from tools import plot_curves
 from tools import announce_msg
 from tools import check_if_allow_multgpu_mode
 from tools import copy_model_state_dict_from_gpu_to_cpu
+from tools import count_nb_params
 
 from loader import csv_loader
 from loader import MyDataParallel
@@ -49,6 +50,7 @@ import torch
 
 
 import reproducibility
+import constants
 
 
 # and we are in an evaluation mode (to go faster and coop with the lag between
@@ -97,7 +99,7 @@ if __name__ == "__main__":
 
     CRITERION = instantiate_train_loss(args).to(DEVICE)
 
-
+    # Write in scratch instead of /project
     FOLDER = '.'
     sub_folder = "exps"
 
@@ -110,12 +112,13 @@ if __name__ == "__main__":
            ('fold', args.fold),
            ('split', args.split),
            ('seed', args.MYSEED),
+           ('side_cl', args.model['side_cl']),
+           ('bsz', args.batch_size),
            ('t', dt.datetime.now().strftime('%m_%d_%Y_%H_%M_%S_%f'))
            ]
     tag = [(el[0], str(el[1])) for el in tag]
     tag = '-'.join(['_'.join(el) for el in tag])
 
-    
     parent_lv = "exps"
     if args.debug_subfolder != '':
         parent_lv = join(parent_lv, args.debug_subfolder)
@@ -183,7 +186,6 @@ if __name__ == "__main__":
                     "test_s_{}_f_{}.csv".format(args.split, args.fold))
 
     # Check if the csv files exist. If not, raise an error.
-
     for fcsv in [train_csv, valid_csv, test_csv]:
         assert os.path.isfile(fcsv), "{} does not exist.".format(fcsv)
 
@@ -197,6 +199,8 @@ if __name__ == "__main__":
 
     myseed = int(os.environ["MYSEED"])
     reproducibility.force_seed(myseed)
+    reproducibility.force_seed(myseed)
+
     trainset = PhotoDataset(train_samples,
                             args.dataset,
                             args.name_classes,
@@ -207,12 +211,11 @@ if __name__ == "__main__":
                             crop_size=args.crop_size,
                             padding_size=args.padding_size,
                             padding_mode=args.padding_mode,
-                            up_scale_small_dim_to=args.up_scale_small_dim_to
+                            up_scale_small_dim_to=args.up_scale_small_dim_to,
+                            do_not_save_samples=True
                             )
 
     reproducibility.force_seed(myseed)
-
-
     reproducibility.force_seed(myseed)
     train_loader = DataLoader(trainset,
                               batch_size=args.batch_size,
@@ -256,6 +259,11 @@ if __name__ == "__main__":
                                           strict=args.strict
                                           )
 
+    with open(join(OUTD, 'nbr_params.txt'), 'w') as fend:
+        fend.write("Model: {}. \n NBR-params: {}.".format(
+            args.model['model_name'], count_nb_params(model)
+        ))
+
     # best_model = deepcopy(model)  # Copy the model to device (0) before
     # applying multi-gpu (in case it is one).
     # best_model.to(DEVICE)
@@ -294,10 +302,11 @@ if __name__ == "__main__":
                         device=DEVICE,
                         stats=vl_stats,
                         args=args,
-                        folderout=None,
+                        folderout=OUTD_VL.folder,
                         epoch=-1,
                         log_file=training_log,
-                        name_set="valid"
+                        name_set="valid",
+                        final_mode=False
                         )
 
     announce_msg("start training")
@@ -305,7 +314,8 @@ if __name__ == "__main__":
     tx0 = dt.datetime.now()
 
     for epoch in range(args.max_epochs):
-        # TODO: IN THE FUTURE: DO NOT USE MAX_EPOCHS IN THE COMPUTATION OF THE CURRENT SEED!!!!
+        # TODO: IN THE FUTURE: DO NOT USE MAX_EPOCHS IN THE COMPUTATION OF
+        #  THE CURRENT SEED!!!!
         # REPLACE IT WITH A CONSTANT (400 IN OUR CASE ON GLAS)
         reproducibility.force_seed(myseed + (epoch + 1) * 10000 + 400)
         trainset.set_up_new_seeds()
@@ -340,10 +350,11 @@ if __name__ == "__main__":
                             device=DEVICE,
                             stats=vl_stats,
                             args=args,
-                            folderout=None,
+                            folderout=OUTD_VL.folder,
                             epoch=epoch,
                             log_file=training_log,
-                            name_set="valid"
+                            name_set="valid",
+                            final_mode=False
                             )
 
         reproducibility.force_seed(myseed + (epoch + 6) * 10000 + 400)
@@ -360,7 +371,6 @@ if __name__ == "__main__":
             # Expensive operation: disc I/O.
             # torch.save(best_model.state_dict(), join(OUTD, "best_model.pt"))
             best_epoch = epoch
-
 
         CRITERION.update_t()
 
@@ -401,6 +411,8 @@ if __name__ == "__main__":
     del trainset
     del train_loader
 
+    STORE_ON_DISC = True
+
     reproducibility.force_seed(myseed)
     validate(model=model,
              dataset=validset,
@@ -413,17 +425,18 @@ if __name__ == "__main__":
              epoch=best_epoch,
              log_file=results_log,
              name_set="valid",
-             store_on_disc=False,
-             store_imgs=False
+             store_on_disc=STORE_ON_DISC,
+             store_imgs=(args.dataset in [constants.GLAS]),
+             final_mode=True
              )
     del validset
     del valid_loader
 
     testset, test_loader = get_eval_dataset(args,
-                                              myseed,
-                                              test_samples,
-                                              transform_tensor
-                                              )
+                                            myseed,
+                                            test_samples,
+                                            transform_tensor
+                                            )
     reproducibility.force_seed(myseed)
     validate(model=model,
              dataset=testset,
@@ -436,8 +449,9 @@ if __name__ == "__main__":
              epoch=best_epoch,
              log_file=results_log,
              name_set="test",
-             store_on_disc=True,
-             store_imgs=True
+             store_on_disc=STORE_ON_DISC,  # todo: set to true.
+             store_imgs=(args.dataset in [constants.GLAS]),  # todo: set to true
+             final_mode=True
              )
     del testset
     del test_loader
@@ -460,8 +474,9 @@ if __name__ == "__main__":
              epoch=best_epoch,
              log_file=results_log,
              name_set="train",
-             store_on_disc=False,
-             store_imgs=False
+             store_on_disc=STORE_ON_DISC,
+             store_imgs=(args.dataset in [constants.GLAS]),
+             final_mode=True
              )
 
     del trainset_eval
@@ -477,11 +492,10 @@ if __name__ == "__main__":
 
     # Move the state dict of the best model into CPU, then save it.
     best_state_dict_cpu = copy_model_state_dict_from_gpu_to_cpu(model)
-    torch.save(model.state_dict(), join(OUTD, "best_model.pt"))
+    torch.save(best_state_dict_cpu, join(OUTD, "best_model.pt"))
     announce_msg("End final processing. Time: {}".format(dt.datetime.now() - tx0))
 
-
-    announce_msg("*END*")
+    announce_msg("*END-BYE*")
     # ==========================================================================
     #                                  END
     # ==========================================================================

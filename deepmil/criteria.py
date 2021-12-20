@@ -11,7 +11,9 @@ from reproducibility import force_seed
 
 from shared import announce_msg
 
-__all__ = ["TrainLoss", "KLUniformLoss", "NegativeEntropy", "Metrics"]
+__all__ = ["TrainLoss", "KLUniformLoss", "NegativeEntropy", "Metrics",
+           'Dice', 'IOU'
+           ]
 
 
 class KLUniformLoss(nn.Module):
@@ -75,7 +77,9 @@ class TrainLoss(nn.Module):
                  mulcoef=1.01,
                  normalize_sz=False,
                  epsilon=0.,
-                 lambda_neg=1e-3
+                 lambda_neg=1e-3,
+                 dataset_name=constants.GLAS,
+                 set_normal_cam_zero=False
                  ):
         """
         Init. function.
@@ -93,7 +97,13 @@ class TrainLoss(nn.Module):
         """
         super(TrainLoss, self).__init__()
 
+        self.dataset_name = dataset_name
+        self.set_normal_cam_zero = set_normal_cam_zero
+        if dataset_name == constants.GLAS:
+            assert not set_normal_cam_zero
+
         self.CE = nn.CrossEntropyLoss(reduction="mean")  # The cross entropy
+        self.BCE = nn.BCELoss(reduction="mean")  # The cross entropy
         # loss.
 
         self.reg_loss = None
@@ -101,7 +111,7 @@ class TrainLoss(nn.Module):
         if use_reg:
             msg = "'reg' must be in {}".format(constants.reg_losses)
             assert reg_loss in constants.reg_losses, msg
-            self.reg_loss =  sys.modules[__name__].__dict__[reg_loss]()
+            self.reg_loss = sys.modules[__name__].__dict__[reg_loss]()
 
         # elb for size constraint.
         self.elb = None
@@ -153,6 +163,95 @@ class TrainLoss(nn.Module):
 
         return loss
 
+    def size_const_cancer(self, masks_pred):
+        """
+        Compute the loss over the size of the masks (camelyon16 dataset:
+        normal samples).
+        :param masks_pred: foreground predicted mask. shape: (bs, 1, h, w).
+        :return: ELB loss. a scalar that is the sum of the losses over bs.
+        """
+        assert masks_pred.ndim == 4, "Expected 4 dims, found {}.".format(
+            masks_pred.ndim)
+
+        msg = "nbr masks must be 1. found {}.".format(masks_pred.shape[1])
+        assert masks_pred.shape[1] == 1, msg
+
+        # foreground
+        bsz = masks_pred.shape[0]
+        h = masks_pred.shape[2]
+        w = masks_pred.shape[3]
+        l1_fg = torch.abs(masks_pred.contiguous().view(bsz, -1)).sum(dim=1)
+        if self.normalize_sz:
+            l1_fg = l1_fg / float(h * w)
+
+        l1_fg = l1_fg - self.epsilon
+        loss_fg = self.elb(-l1_fg)
+
+        loss = loss_fg
+
+        return loss
+
+    def size_const_cancer_bounds(self, masks_pred):
+        """
+        Compute the loss over the size of the masks (camelyon16 dataset:
+        normal samples).
+        :param masks_pred: foreground predicted mask. shape: (bs, 1, h, w).
+        :return: ELB loss. a scalar that is the sum of the losses over bs.
+        """
+        assert masks_pred.ndim == 4, "Expected 4 dims, found {}.".format(
+            masks_pred.ndim)
+
+        msg = "nbr masks must be 1. found {}.".format(masks_pred.shape[1])
+        assert masks_pred.shape[1] == 1, msg
+
+        # background
+
+        # foreground
+        bsz = masks_pred.shape[0]
+        h = masks_pred.shape[2]
+        w = masks_pred.shape[3]
+        l1_fg = torch.abs(masks_pred.contiguous().view(bsz, -1)).sum(dim=1)
+        if self.normalize_sz:
+            l1_fg = l1_fg / float(h * w)
+
+        l1_fg = l1_fg - self.epsilon
+        lb = 0.2
+        ub = 0.6
+        loss_fg = self.elb(lb - l1_fg)
+
+        loss = loss_fg + self.elb(l1_fg - ub)
+
+        return loss
+
+    def size_const_background(self, masks_pred):
+        """
+        Compute the loss over the size of the masks (camelyon16 dataset:
+        normal samples).
+        :param masks_pred: foreground predicted mask. shape: (bs, 1, h, w).
+        :return: ELB loss. a scalar that is the sum of the losses over bs.
+        """
+        assert masks_pred.ndim == 4, "Expected 4 dims, found {}.".format(
+            masks_pred.ndim)
+
+        msg = "nbr masks must be 1. found {}.".format(masks_pred.shape[1])
+        assert masks_pred.shape[1] == 1, msg
+
+        # background
+        backgmsk = 1. - masks_pred
+        bsz = backgmsk.shape[0]
+        h = backgmsk.shape[2]
+        w = backgmsk.shape[3]
+        l1 = torch.abs(backgmsk.contiguous().view(bsz, -1)).sum(dim=1)
+        if self.normalize_sz:
+            l1 = l1 / float(h * w)
+
+        l1 = l1 - self.epsilon
+        loss_back = self.elb(-l1)
+
+        loss = loss_back
+
+        return loss
+
     def update_t(self):
         """
         Update the value of `t` of the ELB method.
@@ -171,8 +270,7 @@ class TrainLoss(nn.Module):
         else:
             return self.zero
 
-
-    def forward(self,
+    def forward_glas(self,
                 scores_pos,
                 sc_cl_se,
                 labels,
@@ -205,11 +303,125 @@ class TrainLoss(nn.Module):
             loss_sz_con = self.size_const(masks_pred=masks_pred) / bsz
             total_loss = total_loss + loss_sz_con
 
+        return total_loss, loss_pos, loss_neg, loss_cl_seg
+
+    def f_camelyon16(self,
+                     scores_pos,
+                     sc_cl_se,
+                     labels,
+                     masks_pred,
+                     scores_neg=None,
+                     cams=None
+                     ):
+        # classification loss over the localizer
+        loss_cl_seg = 10. * self.CE(sc_cl_se, labels)
+
+        total_loss = loss_cl_seg
+        loss_pos = torch.tensor([0.], device=sc_cl_se.device,
+                                requires_grad=True)
+        loss_neg = torch.tensor([0.], device=sc_cl_se.device,
+                                requires_grad=True)
+
+        # normal: 0 ------------------------------------------------------------
+        ind_normal = (labels == 0).nonzero().view(-1)
+        if ind_normal.numel() > 0:
+
+            loss_pos = torch.tensor([0.0], device=sc_cl_se.device,
+                                    requires_grad=True)
+
+            total_loss = total_loss + loss_pos
+
+            # regularization: loss over negative regions:
+            loss_neg = torch.tensor([0.], device=sc_cl_se.device)
+            if self.reg_loss is not None:
+                assert scores_neg is not None, "ERROR"
+
+                loss_neg = torch.tensor([0.0], device=sc_cl_se.device,
+                                        requires_grad=True)
+                total_loss = total_loss + self.lambda_neg * loss_neg
+
+            # constraint on background size.
+            loss_sz_con = torch.tensor([0.], device=sc_cl_se.device)
+            bsz = float(ind_normal.numel())
+            if self.use_size_const:
+
+                loss_sz_con = torch.tensor([0.], device=sc_cl_se.device,
+                                           requires_grad=True)
+                total_loss = total_loss + loss_sz_con
+
+            # force cams of segm. to be active at cam=0.
+            # similar to size.
+            if self.set_normal_cam_zero:
+                assert cams is not None
+
+                trg_cams = torch.zeros(
+                    (ind_normal.numel(), 1, cams.shape[2], cams.shape[3]),
+                    dtype=torch.long, device=cams.device)
+
+                tmpx = self.BCE(input=torch.sigmoid(cams[ind_normal]),
+                                target=trg_cams.float())
+                total_loss = total_loss + tmpx
+        # metastatic: 1 --------------------------------------------------------
+        ind_metas = (labels == 1).nonzero().view(-1)
+        if ind_metas.numel() > 0:
+
+            tmp1 = torch.tensor([0.0], device=sc_cl_se.device,
+                                requires_grad=True)
+
+            loss_pos = loss_pos + tmp1
+            total_loss = total_loss + tmp1
+
+            tmp2 = torch.tensor([0.0], device=sc_cl_se.device,
+                                requires_grad=True)
+
+            loss_neg = loss_neg + tmp2
+            total_loss = total_loss + tmp2
+
+            # constraint on background size.
+            loss_sz_con = torch.tensor([0.], device=sc_cl_se.device)
+            bsz = float(ind_metas.numel())
+            if self.use_size_const:
+                # must be cancer.
+                loss_sz_con = self.size_const_cancer(
+                    masks_pred=masks_pred[ind_metas]) / bsz
+
+                total_loss = total_loss + loss_sz_con
 
         return total_loss, loss_pos, loss_neg, loss_cl_seg
 
+    def forward(self,
+                scores_pos,
+                sc_cl_se,
+                labels,
+                masks_pred,
+                scores_neg=None,
+                cams=None
+                ):
+
+        if self.dataset_name == constants.GLAS:
+            return self.forward_glas(
+                scores_pos=scores_pos,
+                sc_cl_se=sc_cl_se,
+                labels=labels,
+                masks_pred=masks_pred,
+                scores_neg=scores_neg
+            )
+
+        if self.dataset_name == constants.CAMELYON16P512:
+            return self.f_camelyon16(
+                scores_pos=scores_pos,
+                sc_cl_se=sc_cl_se,
+                labels=labels,
+                masks_pred=masks_pred,
+                scores_neg=scores_neg,
+                cams=cams
+            )
+
+        raise NotImplementedError
+
     def __str__(self):
         return "{}()".format(self.__class__.__name__,)
+
 
 class _LossExtendedLB(nn.Module):
     """
@@ -599,7 +811,6 @@ class Metrics(nn.Module):
             type(threshold))
         assert isinstance(threshold, float), msg
 
-
         return (masks_pred >= threshold).float()
 
     def get_binary_mask(self, pred_m, threshold=None):
@@ -677,7 +888,7 @@ def test__LossExtendedLB():
         print("epoch {}. t: {}.".format(r, instance.t_lb))
     print("Loss ELB.sum(): {}".format(out))
 
+
 if __name__ == "__main__":
     # test_TrainLoss()
     test__LossExtendedLB()
-

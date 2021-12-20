@@ -50,6 +50,7 @@ thread_lock = threading.Lock()  # lock for threads to protect the instruction th
 # thread-safe.
 
 import reproducibility
+import constants
 
 ACTIVATE_SYNC_BN = True
 # Override ACTIVATE_SYNC_BN using variable environment in Bash:
@@ -229,13 +230,11 @@ class MaskHead(nn.Module):
         return masks
 
 
-
-class ResNet(nn.Module):
+class ResNetX(nn.Module):
     def __init__(self,
                  block,
                  layers,
-                 sigma=0.5,
-                 w=8,
+                 dataset_name=constants.GLAS,
                  num_classes=2,
                  scale=(0.5, 0.5),
                  modalities=4,
@@ -250,7 +249,157 @@ class ResNet(nn.Module):
         :param layers: list of int, number of layers per block.
         :param num_masks: int, number of masks to output. (supports only 1).
         """
+        self.dataset_name = dataset_name
+        assert dataset_name == constants.CAMELYON16P512
 
+        # classifier stuff
+        cnd = isinstance(scale, tuple) or isinstance(scale, list)
+        cnd = cnd or isinstance(scale, float)
+        msg = "`scale` should be a tuple, or a list, or a float with " \
+              "values in ]0, 1]. You provided {} .... [NOT " \
+              "OK]".format(scale)
+        assert cnd, msg
+
+        if isinstance(scale, tuple) or isinstance(scale, list):
+            msg = "`scale[0]` (height) should be > 0 and <= 1. " \
+                  "You provided `{}` ... [NOT OK]".format(scale[0])
+            assert 0 < scale[0] <= 1, msg
+            msg = "`scale[1]` (width) should be > 0 and <= 1. " \
+                  "You provided `{}` .... [NOT OK]".format(scale[1])
+            assert 0 < scale[0] <= 1, msg
+        elif isinstance(scale, float):
+            msg = "`scale` should be > 0, <= 1. You provided `{}` .... " \
+                  "[NOT OK]".format(scale)
+            assert 0 < scale <= 1, msg
+            scale = (scale, scale)
+
+        self.scale = scale
+        self.num_classes = num_classes
+
+        self.inplanes = 128
+        super(ResNetX, self).__init__()
+
+        # Encoder
+
+        self.conv1 = conv3x3(3, 64, stride=2)
+        self.bn1 = BatchNorm2d(64)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(64, 64)
+        self.bn2 = BatchNorm2d(64)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv3 = conv3x3(64, 128)
+        self.bn3 = BatchNorm2d(128)
+        self.relu3 = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+
+        # Find out the size of the output.
+
+        if isinstance(self.layer4[-1], Bottleneck):
+            in_channel4 = self.layer1[-1].bn3.weight.size()[0]
+            in_channel8 = self.layer2[-1].bn3.weight.size()[0]
+            in_channel16 = self.layer3[-1].bn3.weight.size()[0]
+            in_channel32 = self.layer4[-1].bn3.weight.size()[0]
+        elif isinstance(self.layer4[-1], BasicBlock):
+            in_channel4 = self.layer1[-1].bn2.weight.size()[0]
+            in_channel8 = self.layer2[-1].bn2.weight.size()[0]
+            in_channel16 = self.layer3[-1].bn2.weight.size()[0]
+            in_channel32 = self.layer4[-1].bn2.weight.size()[0]
+        else:
+            raise ValueError("Supported class .... [NOT OK]")
+
+        print(in_channel32, in_channel16, in_channel8, in_channel4)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+        self.mask_head = WildCatClassifierHead(in_channel32,
+                                               modalities,
+                                               num_classes=num_classes,
+                                               kmax=kmax,
+                                               kmin=kmin,
+                                               alpha=alpha,
+                                               dropout=dropout
+                                               )
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
+                    multi_grid=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                BatchNorm2d(planes * block.expansion)
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+
+    def forward(self, x, seed=None, prngs_cuda=None):
+        b, _, h, w = x.shape
+        h_s, w_s = int(h * self.scale[0]), int(w * self.scale[1])
+        x = F.interpolate(input=x,
+                          size=(h_s, w_s),
+                          mode='bilinear',
+                          align_corners=ALIGN_CORNERS
+                          )
+
+        # x: 1 / 1: [n, 3, 480, 480]
+        # Only number of filters change: (18, 50, 101): a/b/c.
+        # Down-sample:
+        x_0 = self.relu1(self.bn1(self.conv1(x)))
+        x_1 = self.relu2(self.bn2(self.conv2(x_0)))
+        x_2 = self.relu3(self.bn3(self.conv3(x_1)))
+        x_3 = self.maxpool(x_2)
+        x_4 = self.layer1(x_3)
+        x_8 = self.layer2(x_4)
+        x_16 = self.layer3(x_8)
+        x_32 = self.layer4(x_16)
+        scores, _ = self.mask_head(x=x_32,
+                                   seed=seed,
+                                   prngs_cuda=prngs_cuda
+                                   )
+        return scores
+
+
+class ResNet(nn.Module):
+    def __init__(self,
+                 block,
+                 layers,
+                 dataset_name=constants.GLAS,
+                 sigma=0.5,
+                 w=8,
+                 num_classes=2,
+                 scale=(0.5, 0.5),
+                 modalities=4,
+                 kmax=0.5,
+                 kmin=None,
+                 alpha=0.6,
+                 dropout=0.0,
+                 set_side_cl=False
+                 ):
+        """
+        Init. function.
+        :param block: class of the block.
+        :param layers: list of int, number of layers per block.
+        :param num_masks: int, number of masks to output. (supports only 1).
+        """
+        self.dataset_name = dataset_name
+        self.set_side_cl = set_side_cl
         # classifier stuff
         cnd = isinstance(scale, tuple) or isinstance(scale, list)
         cnd = cnd or isinstance(scale, float)
@@ -328,29 +477,87 @@ class ResNet(nn.Module):
         self.const2 = torch.tensor([w], requires_grad=False).float()
         self.register_buffer("w", self.const2)
 
-        self.mask_head = WildCatClassifierHead(in_channel32,
-                                               modalities,
-                                               num_classes,
-                                               kmax=kmax,
-                                               kmin=kmin,
-                                               alpha=alpha,
-                                               dropout=dropout
-                                               )
+        if self.dataset_name == constants.GLAS:
+            assert not self.set_side_cl
+            self.mask_head = WildCatClassifierHead(in_channel32,
+                                                   modalities,
+                                                   num_classes=num_classes,
+                                                   kmax=kmax,
+                                                   kmin=kmin,
+                                                   alpha=alpha,
+                                                   dropout=dropout
+                                                   )
 
-        print("Num. parameters headmask: {}".format(
-            sum([p.numel() for p in self.mask_head.parameters()])))
-        # ======================================================================
+            self.pull_mask = None
 
-        # ================================ CLASSIFIER ==========================
-        self.cl32 = WildCatClassifierHead(in_channel32,
-                                          modalities,
-                                          num_classes,
-                                          kmax=kmax,
-                                          kmin=kmin,
-                                          alpha=alpha,
-                                          dropout=dropout
-                                          )
-        # ======================================================================
+            print("Num. parameters headmask: {}".format(
+                sum([p.numel() for p in self.mask_head.parameters()])))
+            # =================================================================
+
+            # ================================ CLASSIFIER =====================
+            self.cl32 = WildCatClassifierHead(in_channel32,
+                                              modalities,
+                                              num_classes=num_classes,
+                                              kmax=kmax,
+                                              kmin=kmin,
+                                              alpha=alpha,
+                                              dropout=dropout
+                                              )
+            self.side_cl = None
+        elif self.dataset_name == constants.CAMELYON16P512:
+            local_kmax = 0.1  # 0.3
+            local_nbr_cls = 2
+            local_dropout = 0.0  # 0.1
+            local_kmin = 0.1
+            local_alpha = 0.6
+            local_modalities = 4  # 5
+
+            self.mask_head = WildCatClassifierHead(in_channel32,
+                                                   local_modalities,
+                                                   num_classes=local_nbr_cls,
+                                                   kmax=local_kmax,
+                                                   kmin=local_kmin,
+                                                   alpha=local_alpha,
+                                                   dropout=local_dropout
+                                                   )
+
+            self.pull_mask = WildCatClassifierHead(in_channel32,
+                                                   modalities,
+                                                   num_classes,
+                                                   kmax=kmax,
+                                                   kmin=kmin,
+                                                   alpha=alpha,
+                                                   dropout=dropout
+                                                   )
+            print("Num. parameters headmask: {}".format(
+                sum([p.numel() for p in self.mask_head.parameters()])))
+            # =================================================================
+
+            # ================================ CLASSIFIER =====================
+            self.cl32 = WildCatClassifierHead(in_channel32,
+                                              local_modalities,
+                                              num_classes=local_nbr_cls,
+                                              kmax=local_kmax,
+                                              kmin=local_kmin,
+                                              alpha=local_alpha,
+                                              dropout=local_dropout
+                                              )
+            if self.set_side_cl:
+                self.side_cl = ResNetX(block=block,
+                                       layers=layers,
+                                       dataset_name=dataset_name,
+                                       num_classes=local_nbr_cls,
+                                       scale=scale,
+                                       modalities=local_modalities,
+                                       kmax=local_kmax,
+                                       kmin=local_kmin,
+                                       alpha=local_alpha,
+                                       dropout=local_dropout
+                                       )
+            else:
+                self.side_cl = None
+        else:
+            raise NotImplementedError
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1,
                     multi_grid=1):
@@ -370,27 +577,10 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, code=None, mask_c=None, seed=None, prngs_cuda=None):
+    def forward(self, x, glabels, code=None, mask_c=None, seed=None,
+                prngs_cuda=None):
         """
         Forward function.
-
-        MultiGPU issue: During training, we need at some point to call the
-        following functions:
-        self.get_mask_xpos_xneg(), self.segment(), self.classify().
-        Since we wrap the model within torch.nn.DataParallel, the function
-         parallel_apply() needs to call the model
-        (call self.forward()). Therefore, it makes it complicated to call other
-        functions such as self.segment().
-        To deal with this, de decide to encode the calling of the sub-functions
-        of the model so we can pass every time
-        by self.forward().
-        Code:
-            1. None: standard forward.
-            2. "get_mask_xpos_xneg": call self.get_mask_xpos_xneg()
-            3. "segment": call self.segment()
-            4. "classify": call self.classify()
-
-
         :param x: input.
         :param code: None or a string. See above.
         :param mask_c: input for self.self.get_mask_xpos_xneg()
@@ -403,38 +593,26 @@ class ResNet(nn.Module):
         :param prngs_cuda: value returned by torch.cuda.get_prng_state().
         :return:
         """
-        if code is None:
-            # 1. Segment: forward.
-            mask, cl_scores_seg = self.segment(x=x,
-                                               seed=seed,
-                                               prngs_cuda=prngs_cuda
-                                               )
+        mask, cl_scores_seg, cams = self.segment(
+            x=x, glabels=glabels, seed=seed, prngs_cuda=prngs_cuda)
 
+        if self.dataset_name == constants.GLAS:
             mask, x_pos, x_neg = self.get_mask_xpos_xneg(x, mask)
+            scores_pos = self.classify(
+                x=x_pos, seed=seed, prngs_cuda=prngs_cuda)
+            scores_neg = self.classify(
+                x=x_neg, seed=seed, prngs_cuda=prngs_cuda)
+        elif self.dataset_name == constants.CAMELYON16P512:
+            x_pos, x_neg = self.apply_mask(x, mask)
+            b = x.shape[0]
+            scores_pos = torch.zeros((b, 2), dtype=torch.float,
+                                     requires_grad=True, device=x.device)
+            scores_neg = torch.zeros((b, 2), dtype=torch.float,
+                                     requires_grad=True, device=x.device)
+        else:
+            raise NotImplementedError
 
-            scores_pos = self.classify(x=x_pos,
-                                    seed=seed,
-                                    prngs_cuda=prngs_cuda
-                                    )
-            scores_neg = self.classify(x=x_neg,
-                                    seed=seed,
-                                    prngs_cuda=prngs_cuda
-                                    )
-
-            return scores_pos, scores_neg, mask, cl_scores_seg
-
-        if code == "get_mask_xpos_xneg":
-            return self.get_mask_xpos_xneg(x, mask_c)
-
-        if code == "segment":
-            return self.segment(x=x, seed=seed, prngs_cuda=prngs_cuda)
-
-        if code == "classify":
-            return self.classify(x=x, seed=seed, prngs_cuda=prngs_cuda)
-
-        raise ValueError("You seem to have figure it out how to use model.forward() using multiGPU. However, "
-                         "you provided an unsupported code {}. Please double check. This is the list of supported "
-                         "codes: None, 'get_mask_xpos_xneg', 'segment', 'classify'. Exiting .... [NOT OK]")
+        return scores_pos, scores_neg, mask, cl_scores_seg, cams
 
     def get_mask_xpos_xneg(self, x, mask_c):
         """
@@ -449,7 +627,7 @@ class ResNet(nn.Module):
 
         return mask, x_pos, x_neg
 
-    def segment(self, x, seed=None, prngs_cuda=None):
+    def segment(self, x, glabels, seed=None, prngs_cuda=None):
         """
         Forward function.
         Any mask is is composed of two 2D plans:
@@ -491,33 +669,65 @@ class ResNet(nn.Module):
         # x_16 = F.dropout(x_16, p=0.3, training=self.training, inplace=False)
         x_32 = self.layer4(x_16)   # 1 / 32: [n, 512/2048/--, 15, 15]   --> x2^5 to get back to 1.
 
-        scores, maps = self.mask_head(x=x_32,
-                                      seed=seed,
-                                      prngs_cuda=prngs_cuda
-                                      )
+        if self.dataset_name == constants.GLAS:
+            scores, maps = self.mask_head(x=x_32,
+                                          seed=seed,
+                                          prngs_cuda=prngs_cuda
+                                          )
+            # compute M+
+            prob = F.softmax(scores, dim=1)
+            mpositive = torch.zeros((b, 1, maps.size()[2], maps.size()[3]),
+                                    dtype=maps.dtype,
+                                    layout=maps.layout,
+                                    device=maps.device
+                                    )
+            # todo: maps need to be interpolated then softmaxed first.
+            for i in range(b):  # for each sample
+                for j in range(prob.size()[1]):  # sum the: prob(class) * mask(class)
+                    mpositive[i] = mpositive[i] + prob[i, j] * maps[i, j, :, :]
 
-        # compute M+
-        prob = F.softmax(scores, dim=1)
-        mpositive = torch.zeros((b, 1, maps.size()[2], maps.size()[3]),
-                                dtype=maps.dtype,
-                                layout=maps.layout,
-                                device=maps.device
-                                )
-        for i in range(b):  # for each sample
-            for j in range(prob.size()[1]):  # sum the: prob(class) * mask(class)
-                mpositive[i] = mpositive[i] + prob[i, j] * maps[i, j, :, :]
+            # mpositive = self.mask_head(x_32)  # todo: try x32, x16, both.
 
+            mpos_inter = F.interpolate(input=mpositive,
+                                       size=(h, w),
+                                       mode='bilinear',
+                                       align_corners=ALIGN_CORNERS
+                                       )
+            cams = F.interpolate(input=maps,
+                                 size=(h, w),
+                                 mode='bilinear',
+                                 align_corners=ALIGN_CORNERS
+                                 )
 
-        # does not work.
-        # mpositive = self.mask_head(x_32)  # todo: try x32, x16, both.
+            return mpos_inter, scores, cams
 
-        mpos_inter = F.interpolate(input=mpositive,
-                                   size=(h, w),
-                                   mode='bilinear',
-                                   align_corners=ALIGN_CORNERS
-                                   )
+        if self.dataset_name == constants.CAMELYON16P512:
 
-        return mpos_inter, scores
+            if self.set_side_cl:
+                scores = self.side_cl(x, seed=seed, prngs_cuda=prngs_cuda)
+            else:
+                scores, _ = self.mask_head(x=x_32,
+                                           seed=seed,
+                                           prngs_cuda=prngs_cuda
+                                           )
+
+            _, maps = self.pull_mask(x=x_32,
+                                     seed=seed,
+                                     prngs_cuda=prngs_cuda
+                                     )
+            cams = F.interpolate(input=maps,
+                                 size=(h, w),
+                                 mode='bilinear',
+                                 align_corners=ALIGN_CORNERS
+                                 )
+            assert self.num_classes == 1
+
+            cams_sfm = torch.sigmoid(self.w * cams)
+            mpos_inter = cams_sfm
+
+            return mpos_inter, scores, cams
+
+        raise NotImplementedError
 
     def classify(self, x, seed=None, prngs_cuda=None):
         # Resize the image first.
@@ -526,8 +736,10 @@ class ResNet(nn.Module):
         # reshape
 
         if seed is not None:
-            # Detaching is not important since we do not compute any gradient below this instruction.
-            # When using multigpu, detaching seems to help obtain reproducible results.
+            # Detaching is not important since we do not compute any gradient
+            # below this instruction.
+            # When using multigpu, detaching seems to help obtain reproducible
+            # results.
             # It does not guarantee the reproducibility 100%.
             x = F.interpolate(input=x, size=(h_s, w_s), mode='bilinear', align_corners=ALIGN_CORNERS).detach()
         else:
@@ -556,10 +768,12 @@ class ResNet(nn.Module):
         Compute a mask by applying a sigmoid function.
         The mask is not binary but pseudo-binary (values are close to 0/1).
 
-        :param x: tensor of size (batch_size, 1, h, w), contain the feature
+        :param x: tensor of size (batch_size, 1, h, w), cont    ain the feature
          map representing the mask.
         :return: tensor, mask. with size (nbr_batch, 1, h, w).
         """
+        # wrong: x.min() .max() operates over the entire tensor.
+        # it should be done over each sample.
         x = (x - x.min()) / (x.max() - x.min())
         return torch.sigmoid(self.w * (x - self.sigma))
 
@@ -609,6 +823,9 @@ def resnet18(pretrained=False, **kwargs):
     model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
     if pretrained:
         model.load_state_dict(load_url(model_urls['resnet18']), strict=False)
+        if model.side_cl is not None:
+            model.side_cl.load_state_dict(load_url(model_urls['resnet18']),
+                                          strict=False)
     return model
 
 
@@ -620,6 +837,9 @@ def resnet50(pretrained=False, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
         model.load_state_dict(load_url(model_urls['resnet50']), strict=False)
+        if model.side_cl is not None:
+            model.side_cl.load_state_dict(load_url(model_urls['resnet50']),
+                                          strict=False)
     return model
 
 
@@ -631,15 +851,21 @@ def resnet101(pretrained=False, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
     if pretrained:
         model.load_state_dict(load_url(model_urls['resnet101']), strict=False)
+        if model.side_cl is not None:
+            model.side_cl.load_state_dict(load_url(model_urls['resnet101']),
+                                          strict=False)
     return model
 
 
 def test_resnet():
-    model = resnet18(pretrained=True)
+
+    c = 1
+    model = resnet18(
+        pretrained=True, dataset_name=constants.CAMELYON16P512, num_classes=c)
     print("Testing {}".format(model.__class__.__name__))
     model.train()
     print("Num. parameters: {}".format(sum([p.numel() for p in model.parameters()])))
-    cuda = "1"
+    cuda = "0"
     print("cuda:{}".format(cuda))
     print("DEVICE BEFORE: ", torch.cuda.current_device())
     DEVICE = torch.device("cuda:{}".format(cuda) if torch.cuda.is_available() else "cpu")
@@ -650,10 +876,22 @@ def test_resnet():
     print("DEVICE AFTER: ", torch.cuda.current_device())
     # DEVICE = torch.device("cpu")
     model.to(DEVICE)
-    x = torch.randn(2, 3, 480, 480)
+
+    b = 20
+    glabels = torch.randint(low=0, high=c+1, size=(b,), device=DEVICE,
+                            dtype=torch.long)
+    x = torch.randn(b, 3, 480, 480)
     x = x.to(DEVICE)
-    scores_pos, scores_neg, mask = model(x)
-    print(x.size(), mask.size())
+    scores_pos, scores_neg, mask, cl_scores_seg, cams = model(x, glabels=glabels)
+    print(x.size(), mask.size(), cams.size(), cl_scores_seg.shape)
+    ce = nn.CrossEntropyLoss(reduction="mean")
+    loss = ce(cl_scores_seg, glabels)
+    loss.backward()
+    print(list(model.side_cl.parameters())[0].requires_grad,
+          list(model.side_cl.parameters())[0].grad,
+          list(model.mask_head.parameters())[0].requires_grad,
+          list(model.mask_head.parameters())[0].grad
+          )
 
 
 if __name__ == "__main__":

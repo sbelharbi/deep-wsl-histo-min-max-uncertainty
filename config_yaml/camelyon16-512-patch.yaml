@@ -1,0 +1,46 @@
+MYSEED: 0
+alpha_plot: 128
+batch_size: 8
+bins: 100
+crop_size: !!python/tuple [480, 480]
+dataset: camelyon16-512-patch
+debug_subfolder: ''
+epsilon: 0.0
+extension: !!python/tuple [jpeg, JPEG]
+final_thres: 0.5
+floating: 3
+fold: 0
+fold_folder: ./folds
+height_tag: 50
+img_extension: jpg
+init_t: 5.0
+lambda_neg: 1.0e-07
+max_epochs: 20
+max_t: 10.0
+model: {alpha: 0.0, delta_sigma: 0.001, dropout: 0.0, kmax: 0.1, kmin: 0.1, max_sigma: 0.2,
+  modalities: 5, model_name: resnet18, num_classes: 1, path_pre_trained: null, pretrained: true,
+  scale_in_cl: 1.0, side_cl: false, sigma: 0.15, strict: true, w: 5.0}
+mulcoef: 1.01
+name_classes: {normal: 0, tumor: 1}
+nbr_classes: 2
+normalize: true
+normalize_sz: false
+num_workers: 8
+optimizer: {dampening: 0.0, gamma: 0.5, last_epoch: -1, lr: 0.001, lr_scheduler_name: mystep,
+  min_lr: 1.0e-07, momentum: 0.9, name: sgd, nesterov: true, step_size: 10, use_lr_scheduler: true,
+  weight_decay: 1.0e-05}
+pad_eval: false
+padding_mode: reflect
+padding_size: null
+preload: true
+rangeh: !!python/tuple [0, 1]
+reg_loss: KLUniformLoss
+resize: null
+set_normal_cam_zero: false
+show_hists: false
+split: 0
+up_scale_small_dim_to: null
+use_reg: false
+use_size_const: false
+use_tags: true
+valid_batch_size: 1

@@ -110,6 +110,76 @@ time python main.py --yaml glas.yaml --name sgd --batch_size 4 \
 --delta_sigma 0.001 --max_sigma 0.2
 # ==============================================================================
 ```
+- GlaS:
+
+```bash
+export MYSEED=0
+time python main.py --yaml glas.yaml --name sgd --batch_size 4 \
+--valid_batch_size 1 --lr 0.001 --weight_decay 0.0001 --momentum 0.9 \
+--nesterov True --max_epochs 80 --lr_scheduler_name mystep --use_lr_scheduler \
+True --step_size 10 --gamma 0.9 --min_lr 1e-07 --model_name resnet18 \
+--scale_in_cl 0.8 --pretrained True --alpha 0.6 --kmax 0.3 --kmin 0.0 \
+--dropout 0.1 --modalities 5 --crop_size 416 --up_scale_small_dim_to 432 \
+--padding_size 0.0 --pad_eval False --cudaid $cudaid  --dataset glas --split \
+0 --fold 0  --debug_subfolder paper-tmi-n-v/glas  --final_thres 0.5 --use_reg \
+True --reg_loss KLUniformLoss --lambda_neg 1e-07 --use_size_const True \
+--init_t 5.0 --max_t 10.0 --mulcoef 1.01 --normalize_sz False --epsilon 0.0 \
+--sigma 0.15 --delta_sigma 0.001 --max_sigma 0.2 --w 5.0 \
+--set_normal_cam_zero False --side_cl False
+# ==============================================================================
+
+export MYSEED=0
+time python main.py --yaml glas.yaml --name sgd --batch_size 4 \
+--valid_batch_size 1 --lr 0.001 --weight_decay 0.0001 --momentum 0.9 \
+--nesterov True --max_epochs 80 --lr_scheduler_name mystep --use_lr_scheduler \
+True --step_size 10 --gamma 0.9 --min_lr 1e-07 --model_name resnet18 \
+--scale_in_cl 0.8 --pretrained True --alpha 0.6 --kmax 0.3 --kmin 0.0 \
+--dropout 0.1 --modalities 5 --crop_size 416 --up_scale_small_dim_to 432 \
+--padding_size 0.0 --pad_eval False --cudaid $cudaid  --dataset glas --split \
+0 --fold 0  --debug_subfolder paper-tmi-n-v/glas  --final_thres 0.5 --use_reg \
+True --reg_loss NegativeEntropy --lambda_neg 1e-07 --use_size_const True \
+--init_t 5.0 --max_t 10.0 --mulcoef 1.01 --normalize_sz False --epsilon 0.0 \
+--sigma 0.15 --delta_sigma 0.001 --max_sigma 0.2 --w 5.0 \
+--set_normal_cam_zero False --side_cl False
+# ==============================================================================
+
+```
+- Camelyon16:
+
+```bash
+export MYSEED=0
+time python main.py --yaml camelyon16-512-patch.yaml --name sgd --batch_size \
+4 --valid_batch_size 1 --lr 0.001 --weight_decay 0.0001 --momentum 0.9 \
+--nesterov True --max_epochs 20 --lr_scheduler_name mystep --use_lr_scheduler \
+True --step_size 10 --gamma 0.9 --min_lr 1e-07 --model_name resnet18 \
+--scale_in_cl 0.8 --pretrained True --alpha 0.6 --kmax 0.3 --kmin 0.0 \
+--dropout 0.1 --modalities 5 --crop_size 416 --cudaid $cudaid  --dataset \
+camelyon16-512-patch --split 0 --fold 0  --debug_subfolder \
+paper-tmi-n-v/camelyon16-512-patch  --final_thres 0.5 --use_reg True \
+--reg_loss KLUniformLoss --lambda_neg 1e-07 --use_size_const True --init_t \
+5.0 --max_t 10.0 --mulcoef 1.01 --normalize_sz False --epsilon 0.0 --sigma \
+0.15 --delta_sigma 0.001 --max_sigma 0.2 --w 5.0 --set_normal_cam_zero True \
+--side_cl False
+# ==============================================================================
+
+
+export MYSEED=0
+time python main.py --yaml camelyon16-512-patch.yaml --name sgd --batch_size \
+4 --valid_batch_size 1 --lr 0.001 --weight_decay 0.0001 --momentum 0.9 \
+--nesterov True --max_epochs 20 --lr_scheduler_name mystep --use_lr_scheduler \
+True --step_size 10 --gamma 0.9 --min_lr 1e-07 --model_name resnet18 \
+--scale_in_cl 0.8 --pretrained True --alpha 0.6 --kmax 0.3 --kmin 0.0 \
+--dropout 0.1 --modalities 5 --crop_size 416 --cudaid $cudaid  --dataset \
+camelyon16-512-patch --split 0 --fold 0  --debug_subfolder \
+paper-tmi-n-v/camelyon16-512-patch  --final_thres 0.5 --use_reg True \
+--reg_loss NegativeEntropy --lambda_neg 1e-07 --use_size_const True --init_t \
+5.0 --max_t 10.0 --mulcoef 1.01 --normalize_sz False --epsilon 0.0 --sigma \
+0.15 --delta_sigma 0.001 --max_sigma 0.2 --w 5.0 --set_normal_cam_zero True \
+--side_cl False
+# ==============================================================================
+
+```
+
 See all the keys that you can override using the command line in  [tools.get_yaml_args()](./tools.py).
 
 #### 4.1. General notes:

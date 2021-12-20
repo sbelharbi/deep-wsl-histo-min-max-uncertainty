@@ -180,6 +180,7 @@ paper-tmi-n-v/camelyon16-512-patch  --final_thres 0.5 --use_reg True \
 
 ```
 
+
 See all the keys that you can override using the command line in  [tools.get_yaml_args()](./tools.py).
 
 #### 4.1. General notes:

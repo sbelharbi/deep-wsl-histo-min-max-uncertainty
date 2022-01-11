@@ -26,8 +26,6 @@ from deepmil.criteria import IOU
 
 import reproducibility
 import constants
-from estimate_thres import EstimateThresSeg
-from estimate_thres import EstimateThresCl
 
 
 def train_one_epoch(model,
@@ -316,11 +314,6 @@ def validate(model,
     iou_f = IOU()
     metrics.eval()
 
-    est_th_seg = EstimateThresSeg(
-        metric=metrics, start=0.05, stop=1., step=0.01)
-    est_th_cl_sz = EstimateThresCl()
-    est_th_cl = EstimateThresCl()
-
     f1pos_, f1neg_, miou_, acc_ = 0., 0., 0., 0.
     l_f1pos_ = []
     l_f1neg_ = []
@@ -470,9 +463,6 @@ def validate(model,
                                            1. - masks_trg.view(bsz, -1)))
                     dice_back = l_f1neg_[-1]
 
-                # estimate
-                est_th_seg(mask_pred=mask_pred, mask_trg=masks_trg)
-
             else:
                 raise NotImplementedError
 
@@ -523,28 +513,6 @@ def validate(model,
                                args,
                                mask_fd,
                                )
-
-    if args.dataset == constants.CAMELYON16P512:
-        est_th_seg.log_to_text_file(
-            path_file=join(folderout,
-                           'log-seg-{}-final-{}.txt'.format(epoch, final_mode)))
-
-        est_th_cl_sz(scores=masks_sizes, glabels=glabels)
-        est_th_cl_sz.log_to_text_file(
-            path_file=join(folderout,
-                           'log-cl-SZ-{}-final-{}.txt'.format(
-                               epoch, final_mode)))
-        est_th_cl(scores=cancer_scores, glabels=glabels)
-        est_th_cl.log_to_text_file(
-            path_file=join(folderout,
-                           'log-cl-SCORE-SEG-{}-final-{}.txt'.format(
-                               epoch, final_mode)))
-        path_siz = join(folderout, 'size-{}-{}.pkl'.format(
-            args.reg_loss, name_set))
-
-        with open(path_siz, 'wb') as fout:
-            pkl.dump(sizes_m, fout, protocol=pkl.HIGHEST_PROTOCOL)
-        print('Stored sizes in {}'.format(path_siz))
 
     # avg
     acc_ *= (100. / float(cnt))

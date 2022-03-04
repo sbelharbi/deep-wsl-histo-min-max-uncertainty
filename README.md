@@ -10,9 +10,13 @@
   title={Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty},
   author={Belharbi, S. and Rony, J. and Dolz, J. and Ben Ayed, I. and McCaffrey, L. and Granger, E.},
   journal={IEEE Transactions on Medical Imaging},
-  year={2021}
+  volume    = {41},
+  pages     = {702-714},
+  issue     = {3},
+  year      = {2022}
 }
 ```
+
 
 ### Content:
 1. [Method overview](#methodOverview)

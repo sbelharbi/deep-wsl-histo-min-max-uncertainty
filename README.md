@@ -15,6 +15,13 @@
   issue     = {3},
   year      = {2022}
 }
+
+@inproceedings{belharbi2022levUncer,
+  title={Leveraging Uncertainty for Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images},
+  author={Belharbi, S. and Rony, J. and Dolz, J. and Ben Ayed, I. and McCaffrey, L. and Granger, E.},
+  booktitle={Medical Imaging with Deep Learning (MIDL, short paper)},
+  year     = {2022}
+}
 ```
 
 

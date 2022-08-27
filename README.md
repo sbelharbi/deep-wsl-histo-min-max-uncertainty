@@ -4,6 +4,8 @@
 
  [(arxiv.org/abs/2011.07221)](https://arxiv.org/abs/2011.07221)
 
+### MIDL2022 - short: [[Slides]](/doc/slides.pdf)  [[Video presentation]](/doc/video.mkv)  [[Poster]](/doc/poster.pdf)
+
 ### Citation:
 ```
 @article{belharbi2022minmaxuncer,

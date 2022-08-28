@@ -4,7 +4,7 @@
 
  [(arxiv.org/abs/2011.07221)](https://arxiv.org/abs/2011.07221)
 
-### MIDL2022 - short: [[Slides]](/doc/slides.pdf)  [[Video presentation]](/doc/video.mkv)  [[Poster]](/doc/poster.pdf)
+### MIDL2022 - short: [[Slides]](/doc/slides.pdf)  [[Video presentation]](https://drive.google.com/file/d/1-TESDgZBTdIOWQysCwEVK-CXRl3p4-L1/view?usp=sharing)  [[Poster]](/doc/poster.pdf)
 
 ### Citation:
 ```

@@ -36,7 +36,8 @@ def get_eval_dataset(args,
                             padding_size=pad_vld_sz,
                             padding_mode=pad_vl_md,
                             force_div_32=False,
-                            up_scale_small_dim_to=args.up_scale_small_dim_to
+                            up_scale_small_dim_to=args.up_scale_small_dim_to,
+                            do_not_save_samples=True
                             )
 
     reproducibility.force_seed(myseed)

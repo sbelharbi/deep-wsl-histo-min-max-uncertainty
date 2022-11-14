@@ -1,12 +1,12 @@
 from torch.optim import SGD
 from torch.optim import Adam
 import torch.optim.lr_scheduler as lr_scheduler
+import warnings
 
 
 from deepmil import models, criteria
 from deepmil import lr_scheduler as my_lr_scheduler
 from tools import Dict2Obj, count_nb_params
-
 
 
 def instantiate_train_loss(args):
@@ -17,16 +17,19 @@ def instantiate_train_loss(args):
      read from the yaml file.
     :return: eval_loss: instance of deepmil.criteria.TotalLossEval()
     """
-    return criteria.TrainLoss(use_reg=args.use_reg,
-                              reg_loss=args.reg_loss,
-                              use_size_const=args.use_size_const,
-                              init_t=args.init_t,
-                              max_t=args.max_t,
-                              mulcoef=args.mulcoef,
-                              normalize_sz=args.normalize_sz,
-                              epsilon=args.epsilon,
-                              lambda_neg=args.lambda_neg
-                              )
+    return criteria.TrainLoss(
+        use_reg=args.use_reg,
+        reg_loss=args.reg_loss,
+        use_size_const=args.use_size_const,
+        init_t=args.init_t,
+        max_t=args.max_t,
+        mulcoef=args.mulcoef,
+        normalize_sz=args.normalize_sz,
+        epsilon=args.epsilon,
+        lambda_neg=args.lambda_neg,
+        dataset_name=args.dataset,
+        set_normal_cam_zero=args.set_normal_cam_zero
+    )
 
 
 def instantiate_models(args):
@@ -44,6 +47,7 @@ def instantiate_models(args):
     p = Dict2Obj(args.model)
 
     model = models.__dict__[p.model_name](pretrained=p.pretrained,
+                                          dataset_name=args.dataset,
                                           sigma=p.sigma,
                                           w=p.w,
                                           num_classes=p.num_classes,
@@ -52,12 +56,16 @@ def instantiate_models(args):
                                           kmax=p.kmax,
                                           kmin=p.kmin,
                                           alpha=p.alpha,
-                                          dropout=p.dropout
+                                          dropout=p.dropout,
+                                          set_side_cl=p.side_cl
                                           )
-
+    if p.side_cl:
+        warnings.warn('side_cl is set to true')
     print("Mi-max entropy model `{}` was successfully instantiated. "
           "Nbr.params: {} .... [OK]".format(
         model.__class__.__name__, count_nb_params(model)))
+    # for name, param in model.named_parameters():
+    #     print(name, param.requires_grad, param.grad)
     return model
 
 

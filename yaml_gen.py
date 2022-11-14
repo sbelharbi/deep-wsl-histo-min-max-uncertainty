@@ -1,5 +1,6 @@
 import datetime as dt
 from os.path import join
+from copy import deepcopy
 
 import yaml
 
@@ -30,7 +31,10 @@ config = {
     "crop_size": (480, 480),  # Size of the patches to be cropped (h, w).
     "up_scale_small_dim_to": 500,  # None # int or None. If int, the images are
     # upscaled to this size while
-    # preserving the ratio. See loader.PhotoDataset().
+    # preserving the ratio. See loader.PhotoDataset(). the name of the
+    # variable is misleading after ulterior changes. see the doc of loader.
+    # now, it can bring any dimension size into this size whether it is
+    # higher or lower than this constant.
     "padding_size": None,  # float,  # padding ratios for the original image
     # for (top/bottom) and (left/right).
     # Can be
@@ -124,7 +128,9 @@ config = {
         "sigma": 0.15,  # simga for the thresholding (init. value).
         "delta_sigma": 0.001,  # how much to increase sigma each epoch.
         "max_sigma": 0.2,   # max value of sigma.
-        "w": 5.  # w for the thresholding.
+        "w": 5.,  # w for the thresholding.
+        'side_cl': False,  # if true, a second classifier is created. only
+        # for camelyon.
     },
     "use_reg": False,  # perform or not the regularization over the background.
     "reg_loss": constants.KLUniform,  # loss regu. over the background.
@@ -137,16 +143,32 @@ config = {
     "mulcoef": 1.01,  # elb for size cons. over background.
     "normalize_sz": False,  # normalize or not the size of a background mask.
     "epsilon": 0.,  # elb for size cons. over background.
-    "lambda_neg": 1e-7  # lambda for the background loss.
+    "lambda_neg": 1e-7,  # lambda for the background loss.
+    "set_normal_cam_zero": False  # ONLY for camelyon16, normal samples: if
+    # true, it sets the cam of the normal samples to be the winner.
 }
-
 
 fold_yaml = "config_yaml"
 fold_bash = "config_bash"
 name_config = dt.datetime.now().strftime('%m_%d_%Y_%H_%M_%S_%f')
-name_config = "glas"
+for dataset in [constants.GLAS, constants.BCC, constants.CAMELYON16P512]:
+    cconfig = deepcopy(config)
+    cconfig['dataset'] = dataset
 
-name_yaml = join(fold_yaml, name_config + ".yaml")
+    if dataset == constants.CAMELYON16P512:
+        cconfig['name_classes'] = {'normal': 0, 'tumor': 1}
+        cconfig['max_epochs'] = 20
+        cconfig['optimizer']['step_size'] = 10
+        cconfig['padding_size'] = None
+        cconfig['up_scale_small_dim_to'] = None
+        cconfig['pad_eval'] = False
+        cconfig['model']['num_classes'] = 1
 
-with open(name_yaml, 'w') as f:
-    yaml.dump(config, f)
+    if dataset == constants.GLAS:
+        cconfig['set_normal_cam_zero'] = False
+        cconfig['model']['side_cl'] = False
+
+    name_yaml = join(fold_yaml, dataset + ".yaml")
+
+    with open(name_yaml, 'w') as f:
+        yaml.dump(cconfig, f)

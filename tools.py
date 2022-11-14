@@ -28,6 +28,8 @@ from io import BytesIO
 import zipfile
 from collections import OrderedDict
 import subprocess
+import textwrap
+from random import choice
 
 import torch
 
@@ -35,6 +37,8 @@ from sklearn.metrics import confusion_matrix, roc_curve, precision_recall_curve,
 from torchvision import transforms
 from scipy import interp
 import pydensecrf.densecrf as dcrf
+
+import constants
 
 
 class Dict2Obj(object):
@@ -1117,11 +1121,169 @@ class VisualizePaper(VisualiseMIL):
         return img_out, tag_paper_img
 
 
+class FastVisualizePaper(VisualiseMIL):
+    """
+    Visualize overlapped images for the paper.
+    """
+
+    def create_tag_input(self, him, wim, label, name_file):
+        """
+        Create a PIL.Image.Image of RGB uint8 type. Then, writes a message over it.
+
+        Dedicated to the input image.
+
+        Written message: "Input: label  (h) him pix. x (w) wim pix."
+
+        :param him: int, height of the image.
+        :param wim: int, the width of the image containing the tag.
+        :param label: str, the textual tag.
+        :param name: str, name of the input image file.
+        :return:
+        """
+        if label is None:
+            label = "unknown"
+        img_tag = Image.new("RGB", (wim, self.height_tag), "black")
+
+        draw = ImageDraw.Draw(img_tag)
+
+        x = self.left_margin
+        draw, x = self.drawonit(draw, x, self.y, "Input: {} | ".format(name_file), self.white, self.font_regular,
+                                self.dx)
+        draw, x = self.drawonit(draw, x, self.y, label, self.white, self.font_bold, self.dx)
+
+        # msg = "(h){}pix.x(w){}pix.".format(him, wim)
+        # self.drawonit(draw, x, self.y, msg, self.white, self.font_bold, self.dx)
+
+        return img_tag
+
+    def create_tag_pred_mask(self, wim, msg1, msg2):
+        """
+
+        :param wim:
+        :param msg1:
+        :param msg2:
+        :return:
+        """
+        img_tag = Image.new("RGB", (wim, self.height_tag), "black")
+
+        draw = ImageDraw.Draw(img_tag)
+        x = self.left_margin
+        draw, x = self.drawonit(draw, x, self.y, msg1, self.white, self.font_regular, self.dx)
+        x = self.left_margin
+        draw, x = self.drawonit(draw, x, self.y2, msg2, self.white, self.font_regular, self.dx)
+
+        return img_tag
+
+    def create_tag_paper(self, wim, msg, font=None):
+        """
+        Craeate a VISIBLE tag for the paper.
+
+        :param wim: int, image width.
+        :param msg: message (str) to display.
+        :return:
+        """
+        if font is None:
+            font = self.font_bold_paper
+
+        img_tag = Image.new("RGB", (wim, self.height_tag_paper), "black")
+
+        draw = ImageDraw.Draw(img_tag)
+        x = self.left_margin
+        draw, x = self.drawonit(draw, x, 0, msg, self.white, font, self.dx)
+
+        return img_tag
+
+    def create_tag_true_mask(self, wim):
+        """
+        Create a PIL.Image.Image of RGB uint8 type. Then, writes a message over it.
+
+        Dedicated to the true mask.
+
+        Written message:
+        "True mask: [known or unknown]"
+        :param wim: int, width of the image.
+        :param status: str, the status of the prediction: "correct", "wrong", None. If None, no display of the status.
+        :return: PIL.Image.Image.
+        """
+        img_tag = Image.new("RGB", (wim, self.height_tag), "black")
+
+        draw = ImageDraw.Draw(img_tag)
+        x = self.left_margin
+
+        draw, x = self.drawonit(draw, x, self.y, "True mask", self.white, self.font_regular, self.dx)
+
+        return img_tag
+
+    def __call__(self,
+                 img,
+                 true_mask,
+                 per_method,
+                 methods,
+                 order_methods,
+                 use_small_font_paper=False,
+                 create_tag=False
+                 ):
+        """
+
+        :param img:
+        :param name_file:
+        :param true_mask:
+        :param per_method:
+        :param show_heat_map: Bool. If true, we show heat maps. Else, we show binary masks.
+        :param show_tags: Bool. If True, we show tags below the images.
+        :return:
+        """
+
+        assert isinstance(img, Image.Image), "'input_image' type must be `{}`, but we found `{}` .... [NOT OK]" \
+                                             "".format(Image.Image, type(img))
+        assert isinstance(true_mask, np.ndarray) or true_mask is None, "'mask' must be `{}` or None, but we found `{}` .... [" \
+                                                                       "NOT OK]".format(np.ndarray, type(true_mask))
+
+        wim, him = img.size
+        assert wim == true_mask.shape[1] and him == true_mask.shape[0], "predicted mask {} and image shape ({}, " \
+                                                                        "{}) do not " \
+                                                                        "match .... [NOT OK]".format(
+            true_mask.shape, him, wim)
+
+        mask_img = Image.fromarray(np.uint8(true_mask * 255))
+        list_imgs = [img, mask_img]
+        for k in order_methods:
+            list_imgs.append(Image.fromarray(np.uint8(per_method[k] * 255)))
+
+        nbr_imgs = len(methods.keys()) + 2
+        font = self.font_bold_paper
+        if use_small_font_paper:
+            font = self.font_bold_paper_small
+
+        tag_paper_img = None
+        if create_tag:
+            tag_paper_img = Image.new("RGB", (
+            wim * nbr_imgs + self.space * (nbr_imgs - 1),
+            self.height_tag_paper))
+
+            list_tags_paper = [self.create_tag_paper(wim, "Input", font),
+                               self.create_tag_paper(wim, "True mask", font)]
+            for k in order_methods:
+                list_tags_paper.append(self.create_tag_paper(wim, methods[k], font))
+
+        img_out = Image.new("RGB",
+                            (wim * nbr_imgs + self.space * (nbr_imgs - 1),
+                             him), 'orange')
+
+        for i, img in enumerate(list_imgs):
+            img_out.paste(img, (i * (wim + self.space), 0), None)
+            if create_tag:
+                tag_paper_img.paste(list_tags_paper[i], (i * (wim + self.space), 0), None)
+
+        return img_out, tag_paper_img
+
+
 class VisualizeImages(VisualizePaper):
     """
     Visualize images from dataset.
     """
-    def __call__(self, name_classes, list_images, list_true_masks, list_labels, rows, columns, show_tags=False):
+    def __call__(self, name_classes, list_images, list_true_masks,
+                 list_labels, rows, columns, show_tags=False):
         """
 
         :param name_classes:
@@ -1178,6 +1340,51 @@ class VisualizeImages(VisualizePaper):
         return final_out
 
 
+class VisualizeCamelyon16(VisualizePaper):
+    """
+    Visualize images from dataset.
+    """
+    def __call__(self, ims_n, ims_c, masks_c):
+
+        for i, msk in enumerate(masks_c):
+            assert isinstance(msk, np.ndarray)
+
+        for i, img in enumerate(ims_n + ims_c):
+            assert isinstance(img, Image.Image)
+
+        assert len(ims_n) == len(ims_c)
+        assert len(ims_n) == len(ims_c)
+
+        nbr_imgs = len(ims_c)
+        extra_w_space = self.space * (nbr_imgs - 1)
+        w, h = ims_c[0].size
+        for im in ims_c + ims_n:
+            assert im.size[0] == w
+            assert im.size[1] == h
+
+        img_out = Image.new("RGB", (w * nbr_imgs + extra_w_space,
+                                    h * 2 + self.space))
+
+        i = 0
+        p = 0
+        for im, msk in zip(ims_c, masks_c):
+
+            tmp = self.convert_mask_into_heatmap(im, msk, binarize=False)
+            img_out.paste(tmp, (p + i * self.space, 0), None)
+            p += w
+            i += 1
+
+        i = 0
+        p = 0
+        for im in ims_n:
+            wim = im.size[0]
+            img_out.paste(im, (p + i * self.space, h + self.space), None)
+            p += wim
+            i += 1
+
+        return img_out
+
+
 def log(fname, txt):
     with open(fname, 'a') as f:
         f.write(txt + "\n")
@@ -1196,6 +1403,19 @@ def get_exp_name(args):
     return name
 
 
+def count_nb_params(model):
+    """
+    Count the number of parameters within a model.
+
+    :param model: nn.Module or None.
+    :return: int, number of learnable parameters.
+    """
+    if model is None:
+        return 0
+    else:
+        return sum([p.numel() for p in model.parameters()])
+
+
 def get_cpu_device():
     """
     Return CPU device.
@@ -1208,19 +1428,26 @@ def get_device(args):
     """
     Returns the device on which the computations will be performed.
     Input:
-        args: object. Contains the configuration of the exp that has been read from the yaml file.
+        args: object. Contains the configuration of the exp that has been read
+        from the yaml file.
 
     Return:
         torch.device() object.
     """
-    username = getpass.getuser()
-    if username == "sbelharbi":  # LIVIA
-        device = torch.device("cuda:" + args.cudaid if torch.cuda.is_available() else "cpu")
-    else:
+    if "HOST_XXX" in os.environ.keys():
+        if os.environ['HOST_XXX'] in ['lab', 'gsys', 'ESON']:
+            device = torch.device(
+                "cuda:0" if torch.cuda.is_available() else "cpu")
+        else:
+            raise ValueError("Unknown host.")
+
+    elif "CC_CLUSTER" in os.environ.keys():
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    else:
+        raise ValueError("Unknown host.")
 
     if torch.cuda.is_available():
-        torch.cuda.set_device(int(args.cudaid))
+        torch.cuda.set_device(0)
 
     return device
 
@@ -1239,7 +1466,8 @@ def load_pre_pretrained_model(model, path_file, strict):
     """
     # check the target is is on CPU:
     if next(model.parameters()).is_cuda:
-        raise ValueError("We expected the target model to be on CPU. You need to move to CPU then, load your "
+        raise ValueError("We expected the target model to be on CPU."
+                         " You need to move to CPU then, load your "
                          "parameters. Exiting .... [NOT OK]")
     if not os.path.exists(path_file):
         raise ValueError("File {} does not exist. Exiting .... [NOT OK]")
@@ -1331,6 +1559,10 @@ def get_rootpath_2_dataset(args):
             baseurl = "{}/datasets".format(os.environ["EXDRIVE"])
         elif os.environ['HOST_XXX'] == 'lab':
             baseurl = "{}/datasets".format(os.environ["NEWHOME"])
+        elif os.environ['HOST_XXX'] == 'gsys':
+            baseurl = "{}/datasets".format(os.environ["SBHOME"])
+        elif os.environ['HOST_XXX'] == 'ESON':
+            baseurl = "{}/datasets".format(os.environ["DATASETSH"])
     elif "CC_CLUSTER" in os.environ.keys():
         if "SLURM_TMPDIR" in os.environ.keys():
             # if we are running within a job use the node disc:  $SLURM_TMPDIR
@@ -1368,9 +1600,13 @@ def get_rootpath_2_dataset(args):
         baseurl = join(baseurl, 'svhn')
     elif datasetname == 'mnist':
         baseurl = join(baseurl, 'mnist')
-    elif datasetname == "glas":
+    elif datasetname == constants.GLAS:
         baseurl = join(baseurl,
                        "GlaS-2015/Warwick QU Dataset (Released 2016_07_08)")
+    elif datasetname == constants.CAMELYON16P512:
+        baseurl = join(baseurl, "camelyon16-512-patch")
+    elif datasetname == constants.BCC:
+        baseurl = join(baseurl, "breast-cancer-cells", 'archive')
 
     if baseurl is None:
         raise ValueError(msg_unknown_host)
@@ -1463,6 +1699,16 @@ def check_target_stain_path(args, train_samples):
         return args
 
 
+def wrap_command_line(cmd):
+    """
+    Wrap command line
+    :param cmd: str. command line with space as a separator.
+    :return:
+    """
+    return " \\\n".join(textwrap.wrap(
+        cmd, width=77, break_long_words=False, break_on_hyphens=False))
+
+
 def copy_code(dest):
     """Copy code to the exp folder for reproducibility.
     Input:
@@ -1482,6 +1728,15 @@ def copy_code(dest):
             for file in files:
                 if os.path.isfile(file):
                     shutil.copy(file, dest)
+
+    str_cmd = "time python " + " ".join(sys.argv)
+    str_cmd = wrap_command_line(str_cmd)
+    if not os.path.isdir(dest):
+        os.makedirs(dest)
+
+    with open(join(dest, "cmd.sh"), 'w') as frun:
+        frun.write("#!/usr/bin/env bash \n")
+        frun.write(str_cmd)
 
 
 def final_processing(model, dataloader, dataset, dataset_name, test_fn, criterion, device, epoch, callback,
@@ -1879,6 +2134,9 @@ def get_yaml_args(input_args):
         parser.add_argument("--model_name", type=str, default=None,
                             help="Name of the model: resnet18, resnet50, "
                                  "resnet101")
+        parser.add_argument("--side_cl", type=str2bool, default=None,
+                            help="whether or not create a second net for "
+                                 "classification.")
 
         parser.add_argument("--use_reg", type=str2bool, default=None,
                             help="whether to use or not a loss regularization "
@@ -1918,6 +2176,9 @@ def get_yaml_args(input_args):
         parser.add_argument("--lambda_neg", type=float, default=None,
                             help="Lambda for the background loss.")
 
+        parser.add_argument("--set_normal_cam_zero", type=str2bool, default=None,
+                            help="whether or not to set the cam 0 of normal "
+                                 "samples to be winners (camelyon16 only).")
 
         parser.add_argument(
             "--debug_subfolder", type=str, default=None,
@@ -1970,21 +2231,37 @@ def get_yaml_args(input_args):
                 raise ValueError("Key {} was not found in args. ..."
                                  "[NOT OK]".format(k))
 
-        
         args["MYSEED"] = os.environ['MYSEED']
         args['model']['scale_in_cl'] = (
             args['model']['scale_in_cl'],
             args['model']['scale_in_cl']
         )
-        if args['padding_size'] not in [None, 'None']:
+        if args['padding_size'] not in [None, 'None', 0.0]:
             args['padding_size'] = (args['padding_size'], args['padding_size'])
         else:
             args['padding_size'] = None
+
+        if args['dataset'] == constants.GLAS:
+            assert not args['set_normal_cam_zero']
+            assert not args['model']['side_cl']
 
         args_dict = copy.deepcopy(args)
         args = Dict2Obj(args)
 
     return args, args_dict
+
+
+class RandomDiscreteRotation:
+    def __init__(self, degrees: list):
+        self.degrees = degrees
+
+    def __call__(self, img):
+        angle = choice(self.degrees)
+
+        return img.rotate(angle)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(degrees={})'.format(self.degrees)
 
 
 def get_train_transforms_img(args):
@@ -1996,8 +2273,21 @@ def get_train_transforms_img(args):
     :return: a torchvision.transforms.Compose() object.
     """
 
-    if args.dataset == "glas":
+    if args.dataset == constants.GLAS:
         # TODO: check values of jittering: https://arxiv.org/pdf/1806.07064.pdf
+        return transforms.Compose([
+            transforms.ColorJitter(0.5, 0.5, 0.5, 0.05),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip()
+        ])
+    elif args.dataset == constants.CAMELYON16P512:
+        return transforms.Compose([
+            transforms.ColorJitter(0.5, 0.5, 0.5, 0.05),
+            transforms.RandomHorizontalFlip(),
+            RandomDiscreteRotation([i * 90 for i in range(4)])
+            # transforms.RandomVerticalFlip()
+        ])
+    elif args.dataset == constants.BCC:
         return transforms.Compose([
             transforms.ColorJitter(0.5, 0.5, 0.5, 0.05),
             transforms.RandomHorizontalFlip(),
@@ -2023,8 +2313,20 @@ def get_transforms_tensor(args):
     :param args: object. Contains the configuration of the exp that has been read from the yaml file.
     :return:
     """
-    if args.dataset == "glas":
+    if args.dataset == constants.GLAS:
         # TODO: check values of jittering: https://arxiv.org/pdf/1806.07064.pdf
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize([0.5, 0.5, 0.5],
+                                 [0.5, 0.5, 0.5])
+        ])
+    elif args.dataset == constants.CAMELYON16P512:
+        return transforms.Compose([
+            transforms.ToTensor()
+            # transforms.Normalize([0.5, 0.5, 0.5],
+            #                      [0.5, 0.5, 0.5])
+        ])
+    elif args.dataset == constants.BCC:
         return transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5],
@@ -2183,7 +2485,6 @@ def plot_curves(values_dict,
     sz = max([np.array(values_dict[k]).size for k in values_dict.keys()])
     if sz == 0:  # nothing has been recorded yet.
         return 0
-
 
     floating = 6
     font_sz = 10
@@ -3119,10 +3420,7 @@ def check_if_allow_multgpu_mode():
     :return: ALLOW_MULTIGPUS: bool. If True, we enter multigpu mode: 1. Computation will be dispatched over the
     AVAILABLE GPUs. 2. Synch-BN is activated.
     """
-    if "CC_CLUSTER" in os.environ.keys():
-        ALLOW_MULTIGPUS = os.environ["CC_CLUSTER"] in ["beluga", "cedar", "graham"]  # CC.
-    else:
-        ALLOW_MULTIGPUS = False  # LIVIA
+    ALLOW_MULTIGPUS = False
 
     # ALLOW_MULTIGPUS = True
     os.environ["ALLOW_MULTIGPUS"] = str(ALLOW_MULTIGPUS)
@@ -3380,5 +3678,3 @@ if __name__ == "__main__":
     # test_compute_metrics_multi_processing()
 
     test_CRF()
-
-

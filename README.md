@@ -4,15 +4,28 @@
 
  [(arxiv.org/abs/2011.07221)](https://arxiv.org/abs/2011.07221)
 
+### MIDL2022 - short: [[Slides]](/doc/slides.pdf)  [[Video presentation]](https://drive.google.com/file/d/1-TESDgZBTdIOWQysCwEVK-CXRl3p4-L1/view?usp=sharing)  [[Poster]](/doc/poster.pdf)
+
 ### Citation:
 ```
-@article{belharbi2020minmaxuncer,
+@article{belharbi2022minmaxuncer,
   title={Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images via Max-Min Uncertainty},
   author={Belharbi, S. and Rony, J. and Dolz, J. and Ben Ayed, I. and McCaffrey, L. and Granger, E.},
   journal={IEEE Transactions on Medical Imaging},
-  year={2021}
+  volume    = {41},
+  pages     = {702-714},
+  issue     = {3},
+  year      = {2022}
+}
+
+@inproceedings{belharbi2022levUncer,
+  title={Leveraging Uncertainty for Deep Interpretable Classification and Weakly-Supervised Segmentation of Histology Images},
+  author={Belharbi, S. and Rony, J. and Dolz, J. and Ben Ayed, I. and McCaffrey, L. and Granger, E.},
+  booktitle={Medical Imaging with Deep Learning (MIDL, short paper)},
+  year     = {2022}
 }
 ```
+
 
 ### Content:
 1. [Method overview](#methodOverview)
@@ -179,6 +192,7 @@ paper-tmi-n-v/camelyon16-512-patch  --final_thres 0.5 --use_reg True \
 # ==============================================================================
 
 ```
+
 
 See all the keys that you can override using the command line in  [tools.get_yaml_args()](./tools.py).
 

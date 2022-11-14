@@ -77,7 +77,7 @@ def force_seed(seed, check_cudnn=False):
     random.seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = True
     torch.backends.cudnn.deterministic = True  # Deterministic mode can have a
     # performance impact, depending on your
     # model: https://pytorch.org/docs/stable/notes/randomness.html#cudnn
@@ -119,3 +119,14 @@ def force_seed_thread(seed):
     # torch.backends.cudnn.benchmark = False
     # torch.backends.cudnn.deterministic = True  # Deterministic mode can have a performance impact, depending on your
     # model: https://pytorch.org/docs/stable/notes/randomness.html#cudnn
+
+
+def set_default_seed():
+    """
+    Set the default seed.
+    :return:
+    """
+    assert "MYSEED" in os.environ.keys(), "`MYSEED` key is not found in " \
+                                          "os.environ.keys() ...." \
+                                          "[NOT OK]"
+    force_seed_thread(int(os.environ["MYSEED"]))

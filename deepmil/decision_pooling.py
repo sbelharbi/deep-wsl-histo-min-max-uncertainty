@@ -141,4 +141,3 @@ if __name__ == "__main__":
     for func in funcs:
         out = func(x)
         print(func.__class__.__name__, '->', out.size(), out)
-

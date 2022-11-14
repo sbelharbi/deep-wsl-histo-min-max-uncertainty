@@ -1,3 +1,4 @@
+import os
 import csv
 from os.path import join
 import collections
@@ -18,7 +19,7 @@ import torch.nn.functional as F
 
 
 import reproducibility
-
+import constants
 
 __all__ = ["PhotoDataset", "default_collate", "_init_fn"]
 
@@ -205,13 +206,13 @@ class PhotoDataset(Dataset):
                (h, w) that are both dividable by 32 (so the up-scaled mask
                matches the image).
         :param up_scale_small_dim_to: int or None. If not None,
-               we upscale the small dimension (height or width) to this
-               value (then compute the upscale ration r). Then, upscale the
+               we SCALE (up or down) the small dimension (height or width) to
+               this value (then compute the upscale ration r). Then, scale the
                other dimension to a proportional value (using
-               the ratio r). This is helpful when the images have small size
-               such as in the dataset
-               Caltech-UCSD-Birds-200-2011. Due to the depth, small images may
-               'disappear' or provide a very small attention map.
+               the ratio r). This is helpful when the images have either
+               a small or large dim. Due to the model's depth, small images may
+               'disappear' or provide a very small attention map. in the
+               other hand, large images could be problematic.
         :param do_not_save_samples: Bool. If True, we do not save samples in
                memory.The default behavior of the code is to preload the
                samples, and save them in memory to speedup access and to
@@ -261,16 +262,20 @@ class PhotoDataset(Dataset):
         self.up_scale_small_dim_to = up_scale_small_dim_to
         self.do_not_save_samples = do_not_save_samples
 
-        assert dataset_name in [
-            "glas", "Caltech-UCSD-Birds-200-2011", "Oxford-flowers-102"], "dataset_name = {} unsupported. Please " \
+        supds = [
+            "Caltech-UCSD-Birds-200-2011", "Oxford-flowers-102",
+            constants.BCC, constants.GLAS, constants.CAMELYON16P512
+        ]
+        assert dataset_name in supds, "dataset_name = {} unsupported. Please " \
                                                                           "double" \
                                                                           "check. We do some operations that are " \
                                                                           "dataset dependent. So, you may need to do " \
                                                                           "these operations on your own (mask " \
                                                                           "binarization, ...). Exiting .... [NOT " \
                                                                           "OK]".format(dataset_name)
-        if dataset_name != "glas":
-            assert padding_size is None, "We do not support padding train/test for data other than Glas set."
+        if dataset_name != constants.GLAS:
+            assert padding_size in [0.0, None], "We do not support padding " \
+                                          "train/test for data other than Glas set."
 
         self.dataset_name = dataset_name
 
@@ -354,6 +359,14 @@ class PhotoDataset(Dataset):
         :param i: index of the sample.
         :return:
         """
+        if self.dataset_name == constants.CAMELYON16P512:
+            if not os.path.isfile(self.samples[i][1]):
+                # 'normal': no foreground.
+                img = self.get_original_input_img(i)
+                w, h = img.size
+                mask = np.zeros((h, w), dtype=np.uint8)
+                return Image.fromarray(mask, mode="L")
+
         mask = Image.open(self.samples[i][1], "r").convert("L")
 
         # GLAS: a pixel belongs to the mask if its value > 0.
@@ -371,14 +384,19 @@ class PhotoDataset(Dataset):
         # Oxford-flowers-102: a pixel belongs to the mask if its value > 0. The mask has only {0, 255} as values. The
         # new binary mask will contain only {0, 1} values where 0 is the background and 1 is the foreground.
         mask_np = np.array(mask)
-        if self.dataset_name == "glas":
+        if self.dataset_name == constants.GLAS:
+            mask_np = (mask_np != 0).astype(np.uint8)
+        elif self.dataset_name == constants.CAMELYON16P512:
+            mask_np = (mask_np != 0).astype(np.uint8)
+        elif self.dataset_name == constants.BCC:
             mask_np = (mask_np != 0).astype(np.uint8)
         elif self.dataset_name == "Caltech-UCSD-Birds-200-2011":
             mask_np = (mask_np > (255 / 2.)).astype(np.uint8)
         elif self.dataset_name == 'Oxford-flowers-102':
             mask_np = (mask_np != 0).astype(np.uint8)
         else:
-            raise ValueError("Dataset name {} unsupported. Exiting .... [NOT OK]".format(self.dataset_name))
+            raise ValueError("Dataset name {} unsupported. "
+                             "Exiting .... [NOT OK]".format(self.dataset_name))
 
         mask = Image.fromarray(mask_np * 255, mode="L")
 
@@ -426,7 +444,8 @@ class PhotoDataset(Dataset):
             self.labels.append(label)
 
         self.preloaded = True
-        print("{} has successfully loaded the images with {} samples .... [OK]".format(self.__class__.__name__, self.n))
+        print("{} has successfully loaded the images with {} samples"
+              " .... [OK]".format(self.__class__.__name__, self.n))
 
     @staticmethod
     def get_upscaled_dims(w, h, up_scale_small_dim_to):
@@ -436,7 +455,8 @@ class PhotoDataset(Dataset):
         :param w:
         :param h:
         :param up_scale_small_dim_to:
-        :return: w, h: the width and the height upscale (with preservation of the ratio).
+        :return: w, h: the width and the height upscale (with preservation
+        of the ratio).
         """
         if up_scale_small_dim_to is None:
             return w, h
@@ -452,8 +472,18 @@ class PhotoDataset(Dataset):
                 r = (s / w)
             else:
                 r = (s / h)
+        elif h > s:
+            if h < w:
+                r = (s / h)
+            else:
+                r = (s / w)
+        elif w > s:
+            if w < h:
+                r = (s / w)
+            else:
+                r = (s / h)
         else:
-            r = 1  # no upscaling since both dims are higher or equal to the min (s).
+            r = 1  # no scaling
         h_, w_ = int(h * r), int(w * r)
 
         return w_, h_
@@ -462,13 +492,16 @@ class PhotoDataset(Dataset):
         """
         Prepare the data for evaluation [Called ONLY ONCE].
 
-        This function is useful when this class is instantiated over an evaluation set with no randomness,
+        This function is useful when this class is instantiated over an
+         evaluation set with no randomness,
         such as the valid set or the test set.
 
-        The idea is to prepare the data by performing all the necessary steps until we arrive to the final form of
+        The idea is to prepare the data by performing all the necessary steps
+        until we arrive to the final form of
         the input of the model.
 
-        This will avoid doing all the steps every time self.__getitem__() is called.
+        This will avoid doing all the steps every time self.__getitem__() is
+        called.
 
         :return:
         """
@@ -549,10 +582,13 @@ class PhotoDataset(Dataset):
         else:
             assert self.preloaded, "Sorry, you need to preload the data first .... [NOT OK]"
             img, mask, target = self.images[index], self.masks[index], self.labels[index]
-        # Upscale on the fly. Sorry, this may add an extra time, but, we do not want to save in memory upscaled
-        # images!!!! it takes a lot of space, especially for large datasets. So, compromise? upscale only when
+        # Upscale on the fly. Sorry, this may add an extra time, but,
+        # we do not want to save in memory upscaled
+        # images!!!! it takes a lot of space, especially for large datasets.
+        # So, compromise? upscale only when
         # necessary.
-        # check if we need to upscale the image. Useful for Caltech-UCSD-Birds-200-2011.
+        # check if we need to upscale the image.
+        # Useful for Caltech-UCSD-Birds-200-2011.
         if self.up_scale_small_dim_to is not None:
             w, h = img.size
             w_up, h_up = self.get_upscaled_dims(w, h, self.up_scale_small_dim_to)
